@@ -11,6 +11,7 @@ import pytest
 from rfp_eval.dashboard import (
     SupplierFormRow,
     completion_message,
+    intake_status,
     resolve_api_key,
     duplicate_submission_message,
     evaluation_block_reason,
@@ -49,6 +50,18 @@ def test_submission_token_is_stable_and_ignores_row_order():
     second = list(reversed(first))
     assert submission_token(first) == submission_token(second)
     assert submission_token(first) != submission_token([_row(experience=5)])
+
+
+def test_intake_checklist_updates_as_the_user_fills_the_page():
+    empty = dict(intake_status(False, True, 0, ["Upload at least one PDF."]))
+    assert empty["API key entered"] is False
+    assert empty["PDFs uploaded"] is False
+    assert empty["Supplier details complete"] is False
+    ready = dict(intake_status(True, True, 2, []))
+    assert all(ready.values())
+    named = dict(intake_status(True, True, 1, ["proposal.pdf: Supplier name is required."]))
+    assert named["PDFs uploaded"] is True
+    assert named["Supplier details complete"] is False
 
 
 def test_typed_api_key_is_used_before_a_saved_setting():

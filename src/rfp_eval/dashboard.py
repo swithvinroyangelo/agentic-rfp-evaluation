@@ -24,6 +24,22 @@ class SupplierFormRow:
     filename: str
 
 
+def intake_status(
+    has_key: bool,
+    criteria_ready: bool,
+    upload_count: int,
+    detail_errors: list[str],
+) -> list[tuple[str, bool]]:
+    """Live checklist for the upload page. True means that step is complete."""
+    details_ready = upload_count > 0 and not detail_errors
+    return [
+        ("API key entered", bool(has_key)),
+        ("Criteria total 100%", bool(criteria_ready)),
+        ("PDFs uploaded", upload_count > 0),
+        ("Supplier details complete", details_ready),
+    ]
+
+
 def resolve_api_key(typed: str, saved: str) -> str:
     """Prefer a key typed for this session. A saved setting is used only when the box is blank."""
     entered = (typed or "").strip()
