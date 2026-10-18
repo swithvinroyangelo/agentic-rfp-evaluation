@@ -11,6 +11,7 @@ import pytest
 from rfp_eval.dashboard import (
     SupplierFormRow,
     completion_message,
+    resolve_api_key,
     duplicate_submission_message,
     evaluation_block_reason,
     explain_ranking,
@@ -48,6 +49,12 @@ def test_submission_token_is_stable_and_ignores_row_order():
     second = list(reversed(first))
     assert submission_token(first) == submission_token(second)
     assert submission_token(first) != submission_token([_row(experience=5)])
+
+
+def test_typed_api_key_is_used_before_a_saved_setting():
+    assert resolve_api_key(" typed ", "saved") == "typed"
+    assert resolve_api_key("  ", "saved") == "saved"
+    assert resolve_api_key("", "") == ""
 
 
 def test_duplicate_submission_and_completion_messages():

@@ -24,6 +24,14 @@ class SupplierFormRow:
     filename: str
 
 
+def resolve_api_key(typed: str, saved: str) -> str:
+    """Prefer a key typed for this session. A saved setting is used only when the box is blank."""
+    entered = (typed or "").strip()
+    if entered:
+        return entered
+    return (saved or "").strip()
+
+
 def default_database_path(project_root: Path) -> Path:
     return Path(project_root) / "data" / "rfp_eval.db"
 

@@ -23,6 +23,7 @@ from rfp_eval.dashboard import (
     explain_ranking,
     leaderboard_rows,
     partition_suppliers,
+    resolve_api_key,
     scorecard_rows,
     submission_token,
     validate_supplier_rows,
@@ -47,7 +48,7 @@ def main() -> None:
     initialize_database(DB_PATH)
     st.title("RFP evaluation")
     st.caption("Score supplier proposals against active criteria. Python calculates benchmarks, PPI, and rank.")
-    _sidebar()
+    api_key, model = _sidebar()
     page = st.radio(
         "Section",
         ["Criteria", "Evaluate", "Results"],
@@ -57,7 +58,7 @@ def main() -> None:
     if page == "Criteria":
         render_criteria()
     elif page == "Evaluate":
-        render_evaluate()
+        render_evaluate(api_key, model)
     else:
         render_results()
 
@@ -117,7 +118,7 @@ def render_criteria() -> None:
                 st.rerun()
 
 
-def render_evaluate() -> None:
+def render_evaluate(api_key: str, model: str) -> None:
     st.subheader("Supplier proposals")
     criteria = list_all_criteria(DB_PATH)
     reason = evaluation_block_reason(criteria)
@@ -128,6 +129,8 @@ def render_evaluate() -> None:
         type=["pdf"],
         accept_multiple_files=True,
     )
+    if not api_key:
+        st.warning("Enter your OpenAI API key in the sidebar before you evaluate.")
     if not uploads:
         st.info("Upload one or more PDFs. Nothing is evaluated until you choose Evaluate suppliers.")
         return
@@ -169,9 +172,9 @@ def render_evaluate() -> None:
     if duplicate:
         st.warning(duplicate)
 
-    blocked = bool(reason or errors or duplicate)
+    blocked = bool(reason or errors or duplicate or not api_key)
     if st.button("Evaluate suppliers", type="primary", disabled=blocked):
-        _run_batch(list(paths.values()), rows, token)
+        _run_batch(list(paths.values()), rows, token, api_key, model)
 
 
 def render_results() -> None:
@@ -187,7 +190,7 @@ def render_results() -> None:
     _show_run(labels[selected_label])
 
 
-def _run_batch(uploads, rows: list[SupplierFormRow], token: str) -> None:
+def _run_batch(uploads, rows: list[SupplierFormRow], token: str, api_key: str, model: str) -> None:
     progress = st.progress(0, text="Preparing proposals")
     try:
         with tempfile.TemporaryDirectory() as folder:
@@ -203,12 +206,12 @@ def _run_batch(uploads, rows: list[SupplierFormRow], token: str) -> None:
                         experience_rating=row.experience_rating,
                     )
                 )
-            model = OpenAIEvaluationClient()
+            client = OpenAIEvaluationClient(api_key=api_key, model=model)
 
             def on_progress(message: str, fraction: float) -> None:
                 progress.progress(min(max(fraction, 0), 1), text=message)
 
-            result = run_evaluation_batch(DB_PATH, submissions, model, on_progress=on_progress)
+            result = run_evaluation_batch(DB_PATH, submissions, client, on_progress=on_progress)
     except RuntimeError as error:
         progress.empty()
         st.error(str(error))
@@ -286,14 +289,25 @@ def _show_run(run_id: str) -> None:
             st.error(f"{supplier['supplier_name']} · {supplier.get('stage', 'failed')} · {supplier.get('error', '')}")
 
 
-def _sidebar() -> None:
+def _sidebar() -> tuple[str, str]:
     with st.sidebar:
-        st.header("Workspace")
-        key_ready = bool(read_setting("OPENAI_API_KEY"))
-        model = read_setting("OPENAI_MODEL") or DEFAULT_MODEL
-        st.write("API key configured" if key_ready else "API key missing")
-        st.caption(f"Model: {model}")
-        st.caption("The key stays in the environment or Streamlit secrets.")
+        st.header("Before you evaluate")
+        typed_key = st.text_input(
+            "OpenAI API key",
+            type="password",
+            placeholder="Paste your key here",
+            help="Used only in this browser session. It is not saved in the project or shown again.",
+        )
+        model = st.text_input(
+            "Model",
+            value=read_setting("OPENAI_MODEL") or DEFAULT_MODEL,
+        ).strip() or DEFAULT_MODEL
+        api_key = resolve_api_key(typed_key, read_setting("OPENAI_API_KEY"))
+        if api_key:
+            st.caption("Key ready.")
+        else:
+            st.warning("Enter a key before you evaluate.")
+        return api_key, model
 
 
 def _style() -> None:
