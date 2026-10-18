@@ -12,7 +12,9 @@ from rfp_eval.dashboard import (
     SupplierFormRow,
     completion_message,
     intake_status,
+    leaderboard_csv,
     resolve_api_key,
+    suggest_supplier_name,
     duplicate_submission_message,
     evaluation_block_reason,
     explain_ranking,
@@ -62,6 +64,17 @@ def test_intake_checklist_updates_as_the_user_fills_the_page():
     named = dict(intake_status(True, True, 1, ["proposal.pdf: Supplier name is required."]))
     assert named["PDFs uploaded"] is True
     assert named["Supplier details complete"] is False
+
+
+def test_sample_filenames_and_leaderboard_csv():
+    assert suggest_supplier_name("brightpath_tech.pdf") == "BrightPath Tech"
+    assert suggest_supplier_name("north-wind.pdf") == "North Wind"
+    csv_text = leaderboard_csv([
+        {"Rank": 1, "Supplier": "Apex Systems", "PPI": 80},
+    ])
+    assert "Rank,Supplier,PPI" in csv_text
+    assert "Apex Systems" in csv_text
+    assert leaderboard_csv([]) == ""
 
 
 def test_typed_api_key_is_used_before_a_saved_setting():

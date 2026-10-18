@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,6 +40,34 @@ def intake_status(
         ("PDFs uploaded", upload_count > 0),
         ("Supplier details complete", details_ready),
     ]
+
+
+SAMPLE_SUPPLIER_NAMES = {
+    "apex_systems.pdf": "Apex Systems",
+    "brightpath_tech.pdf": "BrightPath Tech",
+    "nexaworks.pdf": "NexaWorks",
+    "orbit_digital.pdf": "Orbit Digital",
+}
+
+
+def suggest_supplier_name(filename: str) -> str:
+    """Turn a proposal filename into a readable supplier name."""
+    base = Path(filename).name
+    if base in SAMPLE_SUPPLIER_NAMES:
+        return SAMPLE_SUPPLIER_NAMES[base]
+    words = Path(base).stem.replace("-", " ").replace("_", " ").split()
+    return " ".join(word[:1].upper() + word[1:] for word in words if word)
+
+
+def leaderboard_csv(rows: list[dict]) -> str:
+    """CSV text for the ranked suppliers. Failed suppliers are not included."""
+    if not rows:
+        return ""
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=list(rows[0]))
+    writer.writeheader()
+    writer.writerows(rows)
+    return buffer.getvalue()
 
 
 def resolve_api_key(typed: str, saved: str) -> str:

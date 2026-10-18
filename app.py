@@ -23,10 +23,13 @@ from rfp_eval.dashboard import (
     evaluation_block_reason,
     intake_status,
     explain_ranking,
+    leaderboard_csv,
     leaderboard_rows,
     partition_suppliers,
     resolve_api_key,
+    SAMPLE_SUPPLIER_NAMES,
     scorecard_rows,
+    suggest_supplier_name,
     submission_token,
     validate_supplier_rows,
 )
@@ -39,8 +42,15 @@ from rfp_eval.db import (
 )
 from rfp_eval.llm_client import DEFAULT_MODEL, OpenAIEvaluationClient, load_project_env, read_setting
 from rfp_eval.orchestrator import SupplierSubmission, run_evaluation_batch
+from rfp_eval.proposals import PROPOSAL_FILENAMES
 
 DB_PATH = default_database_path(ROOT)
+STEPS = ("Upload", "Criteria", "Evaluate")
+STEP_HINTS = {
+    "Upload": "Add the supplier PDFs, then enter a name, date, and experience rating for each file.",
+    "Criteria": "Confirm the active weights total 100% before a batch can be scored.",
+    "Evaluate": "Start the batch here, then read the leaderboard and scorecards.",
+}
 
 
 def main() -> None:
@@ -55,21 +65,14 @@ def main() -> None:
     initialize_database(DB_PATH)
     _hero()
     api_key, model = _sidebar()
-    if "section" not in st.session_state:
-        st.session_state["section"] = "Upload"
-    page = st.radio(
-        "Section",
-        ["Upload", "Criteria", "Results"],
-        horizontal=True,
-        label_visibility="collapsed",
-        key="section",
-    )
+    page = _guide()
     if page == "Upload":
-        render_evaluate(api_key, model)
+        render_upload()
     elif page == "Criteria":
         render_criteria()
     else:
-        render_results()
+        render_evaluate(api_key, model)
+    _step_nav(page)
 
 
 def render_criteria() -> None:
@@ -134,47 +137,96 @@ def render_criteria() -> None:
                 st.rerun()
 
 
-def render_evaluate(api_key: str, model: str) -> None:
-    criteria = list_all_criteria(DB_PATH)
-    reason = evaluation_block_reason(criteria)
+def render_upload() -> None:
     st.subheader("Upload proposals")
-    st.caption("Add the supplier PDFs here. Each file asks for a name, date, and experience rating as soon as it is uploaded.")
+    st.caption("Add the PDFs and supplier details. The next step checks the criteria. Evaluation is the last step.")
+    sample_col, clear_col = st.columns(2)
+    if sample_col.button("Load sample proposals", use_container_width=True):
+        st.session_state["use_samples"] = True
+        for filename, name in SAMPLE_SUPPLIER_NAMES.items():
+            st.session_state[f"name_{filename}"] = name
+        st.rerun()
+    if clear_col.button("Clear sample proposals", use_container_width=True):
+        st.session_state["use_samples"] = False
+        st.rerun()
     uploads = st.file_uploader(
         "Drop supplier PDFs here",
         type=["pdf"],
         accept_multiple_files=True,
     )
+    if uploads:
+        st.session_state["saved_uploads"] = [
+            {"name": upload.name, "file_id": upload.file_id, "data": upload.getvalue()}
+            for upload in uploads
+        ]
+        st.session_state["use_samples"] = False
+    else:
+        st.session_state["saved_uploads"] = []
+    sources = _proposal_sources(uploads)
+    if sources and st.button("Fill names from file names"):
+        for source in sources:
+            filename, identity = _source_identity(source)
+            st.session_state[f"name_{identity}"] = suggest_supplier_name(filename)
+        st.rerun()
     rows: list[SupplierFormRow] = []
-    paths: dict[str, object] = {}
-    for upload in uploads or []:
+    for source in sources:
+        filename, identity = _source_identity(source)
         with st.container(border=True):
             name_col, date_col, experience_col = st.columns([2, 1.2, 1])
-            supplier_name = name_col.text_input("Supplier name", key=f"name_{upload.file_id}", placeholder=upload.name)
-            submitted = date_col.date_input("Submission date", key=f"date_{upload.file_id}")
-            experience = experience_col.number_input(
-                "Experience rating",
-                min_value=1,
-                max_value=5,
-                value=3,
-                step=1,
-                key=f"experience_{upload.file_id}",
+            supplier_name = name_col.text_input(
+                "Supplier name",
+                key=f"name_{identity}",
+                placeholder=filename,
             )
+            submitted = date_col.date_input("Submission date", key=f"date_{identity}")
+            experience_key = f"experience_{identity}"
+            experience_args = {
+                "min_value": 1,
+                "max_value": 5,
+                "step": 1,
+                "key": experience_key,
+            }
+            if experience_key not in st.session_state:
+                experience_args["value"] = 3
+            experience = experience_col.number_input("Experience rating", **experience_args)
             if supplier_name.strip():
-                st.caption(f"{upload.name} is ready.")
+                st.caption(f"{filename} is ready.")
             else:
-                st.caption(f"{upload.name} still needs a supplier name.")
+                st.caption(f"{filename} still needs a supplier name.")
         rows.append(
             SupplierFormRow(
                 supplier_name=supplier_name,
                 submission_date=submitted.isoformat(),
                 experience_rating=int(experience),
-                filename=upload.name,
+                filename=filename,
             )
         )
-        paths[upload.file_id] = upload
 
     errors = validate_supplier_rows(rows)
+    for error in errors:
+        if error != "Upload at least one PDF.":
+            st.error(error)
+    if not sources:
+        st.info("No files yet. Upload PDFs or load the sample proposals, then continue to Criteria.")
+        return
+    named = sum(1 for row in rows if row.supplier_name.strip())
+    st.caption(f"{named} of {len(rows)} proposals have a supplier name. Use Next when this step is complete.")
+
+
+def render_evaluate(api_key: str, model: str) -> None:
+    criteria = list_all_criteria(DB_PATH)
+    reason = evaluation_block_reason(criteria)
+    sources = _saved_sources()
+    rows = _rows_from_sources(sources)
+    errors = validate_supplier_rows(rows)
+    st.subheader("Evaluate")
+    st.caption("This is the last step. The batch runs only when you click the button.")
     _checklist(bool(api_key), reason is None, len(rows), errors)
+    if sources:
+        for row in rows:
+            st.write(f"{row.filename}: {row.supplier_name or 'name missing'} · {row.submission_date} · experience {row.experience_rating}")
+    else:
+        st.info("Go back to Upload and add proposals before evaluating.")
     if reason:
         st.error(f"Evaluation is blocked. {reason}")
     if not api_key:
@@ -182,31 +234,26 @@ def render_evaluate(api_key: str, model: str) -> None:
     for error in errors:
         if error != "Upload at least one PDF.":
             st.error(error)
-    if not uploads:
-        st.info("No files yet. Upload one or more PDFs to continue. Nothing is evaluated until you choose Evaluate suppliers.")
-        return
-
-    token = submission_token(rows)
-    duplicate = duplicate_submission_message(
-        token,
-        st.session_state.get("last_submission_token"),
-        st.session_state.get("last_run_id"),
-    )
-    if duplicate:
-        st.warning(duplicate)
-
-    named = sum(1 for row in rows if row.supplier_name.strip())
-    st.caption(f"{named} of {len(rows)} proposals have a supplier name. Scoring starts only when you click the button.")
-    blocked = bool(reason or errors or duplicate or not api_key)
-    if st.button("Evaluate suppliers", type="primary", disabled=blocked):
-        _run_batch(list(paths.values()), rows, token, api_key, model)
+    if sources:
+        token = submission_token(rows)
+        duplicate = duplicate_submission_message(
+            token,
+            st.session_state.get("last_submission_token"),
+            st.session_state.get("last_run_id"),
+        )
+        if duplicate:
+            st.warning(duplicate)
+        blocked = bool(reason or errors or duplicate or not api_key)
+        if st.button("Evaluate suppliers", type="primary", disabled=blocked):
+            _run_batch(sources, rows, token, api_key, model)
+    render_results()
 
 
 def render_results() -> None:
     st.subheader("Results")
     runs = list_evaluation_runs(DB_PATH)
     if not runs:
-        st.info("No evaluations yet. Upload proposals on the Upload page, then start a batch.")
+        st.info("No evaluations yet. Finish Upload and Criteria, then start a batch here.")
         return
     labels = {f"{run['created_at']} · {run['status']} · {run['rfp_run_id']}": run["rfp_run_id"] for run in runs}
     preferred = st.session_state.get("selected_run_id", runs[0]["rfp_run_id"])
@@ -215,14 +262,69 @@ def render_results() -> None:
     _show_run(labels[selected_label])
 
 
-def _run_batch(uploads, rows: list[SupplierFormRow], token: str, api_key: str, model: str) -> None:
+def _saved_sources() -> list:
+    saved = st.session_state.get("saved_uploads") or []
+    if saved:
+        return [_StoredPdf(item["name"], item["file_id"], item["data"]) for item in saved]
+    if st.session_state.get("use_samples"):
+        return [ROOT / "sample_proposals" / filename for filename in PROPOSAL_FILENAMES]
+    return []
+
+
+def _rows_from_sources(sources) -> list[SupplierFormRow]:
+    rows = []
+    for source in sources:
+        filename, identity = _source_identity(source)
+        submitted = st.session_state.get(f"date_{identity}", "")
+        if hasattr(submitted, "isoformat"):
+            submitted = submitted.isoformat()
+        experience = st.session_state.get(f"experience_{identity}", 3)
+        rows.append(
+            SupplierFormRow(
+                supplier_name=str(st.session_state.get(f"name_{identity}", "")),
+                submission_date=str(submitted),
+                experience_rating=int(experience),
+                filename=filename,
+            )
+        )
+    return rows
+
+
+class _StoredPdf:
+    def __init__(self, name: str, file_id: str, data: bytes) -> None:
+        self.name = name
+        self.file_id = file_id
+        self._data = data
+
+    def getvalue(self) -> bytes:
+        return self._data
+
+
+def _proposal_sources(uploads) -> list:
+    if uploads:
+        return list(uploads)
+    if st.session_state.get("use_samples"):
+        return [ROOT / "sample_proposals" / filename for filename in PROPOSAL_FILENAMES]
+    return []
+
+
+def _source_identity(source) -> tuple[str, str]:
+    if isinstance(source, Path):
+        return source.name, source.name
+    return source.name, source.file_id
+
+
+def _run_batch(sources, rows: list[SupplierFormRow], token: str, api_key: str, model: str) -> None:
     progress = st.progress(0, text="Preparing proposals")
     try:
         with tempfile.TemporaryDirectory() as folder:
             submissions = []
-            for upload, row in zip(uploads, rows):
-                path = Path(folder) / upload.name
-                path.write_bytes(upload.getvalue())
+            for source, row in zip(sources, rows):
+                if isinstance(source, Path):
+                    path = source
+                else:
+                    path = Path(folder) / source.name
+                    path.write_bytes(source.getvalue())
                 submissions.append(
                     SupplierSubmission(
                         supplier_name=row.supplier_name.strip(),
@@ -249,12 +351,7 @@ def _run_batch(uploads, rows: list[SupplierFormRow], token: str, api_key: str, m
     st.session_state["last_submission_token"] = token
     st.session_state["last_run_id"] = result.rfp_run_id
     st.session_state["selected_run_id"] = result.rfp_run_id
-    level, message = completion_message(result.status)
-    if level == "success":
-        st.success(message)
-    else:
-        st.error(message)
-    _show_run(result.rfp_run_id)
+    st.rerun()
 
 
 def _show_run(run_id: str) -> None:
@@ -277,7 +374,16 @@ def _show_run(run_id: str) -> None:
             data=json.dumps(stored, indent=2),
             file_name=f"{stored['rfp_run_id']}.json",
             mime="application/json",
+            key=f"json_{stored['rfp_run_id']}",
         )
+        if scored:
+            st.download_button(
+                "Download CSV",
+                data=leaderboard_csv(leaderboard_rows(scored)),
+                file_name=f"{stored['rfp_run_id']}_leaderboard.csv",
+                mime="text/csv",
+                key=f"csv_{stored['rfp_run_id']}",
+            )
     st.caption(f"Full run id: {stored['rfp_run_id']}")
     warnings = []
     for payload in payloads:
@@ -322,13 +428,47 @@ def _checklist(has_key: bool, criteria_ready: bool, upload_count: int, errors: l
         column.metric(label, "Done" if done else "Needed")
 
 
+def _guide() -> str:
+    current = st.session_state.get("section", "Upload")
+    if current == "Results":
+        current = "Evaluate"
+    if current not in STEPS:
+        current = "Upload"
+    st.session_state["section"] = current
+    columns = st.columns(len(STEPS))
+    for index, (column, name) in enumerate(zip(columns, STEPS), start=1):
+        selected = name == current
+        if column.button(
+            f"{index}. {name}",
+            key=f"step_{name}",
+            type="primary" if selected else "secondary",
+            use_container_width=True,
+        ):
+            st.session_state["section"] = name
+            st.rerun()
+    st.caption(f"Step {STEPS.index(current) + 1} of {len(STEPS)}. {STEP_HINTS[current]}")
+    return current
+
+
+def _step_nav(current: str) -> None:
+    index = STEPS.index(current)
+    back, spacer, forward = st.columns([1, 2, 1])
+    if index > 0 and back.button("Back", use_container_width=True):
+        st.session_state["section"] = STEPS[index - 1]
+        st.rerun()
+    if index < len(STEPS) - 1 and forward.button("Next", type="primary", use_container_width=True):
+        st.session_state["section"] = STEPS[index + 1]
+        st.rerun()
+    spacer.caption("Use Back and Next to move through the evaluation.")
+
+
 def _hero() -> None:
     st.markdown(
         """
         <div class="masthead">
           <p class="kicker">Procurement evaluation</p>
           <h1>Supplier ranking</h1>
-          <p>Upload proposals on this page. Python calculates the weighted score, PPI, and rank.</p>
+          <p>Upload the proposals, check the criteria, then evaluate. Python calculates the weighted score, PPI, and rank.</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -380,67 +520,41 @@ def _style() -> None:
     st.markdown(
         """
         <style>
-        .stApp {background: #f5f7fb;}
-        .block-container {padding-top: 1.1rem; max-width: 1120px;}
-        .masthead {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-left: 4px solid #1d4e89;
-            border-radius: 8px;
-            padding: 1rem 1.2rem 0.95rem;
-            margin-bottom: 0.8rem;
+        .stApp,
+        section[data-testid="stSidebar"],
+        section[data-testid="stSidebar"] > div,
+        .block-container,
+        div[data-testid="stVerticalBlockBorderWrapper"],
+        div[data-testid="stMetric"],
+        div[data-testid="stFileUploader"],
+        div[data-testid="stExpander"],
+        .masthead,
+        .rank-card {
+            background: #1a1f27 !important;
+            background-image: none !important;
+            color: #e7edf4;
         }
-        .masthead h1 {color: #0f172a; font-size: 1.7rem; line-height: 1.2; margin: 0.1rem 0 0.3rem;}
-        .masthead p {margin: 0; color: #475569;}
+        .block-container {padding-top: 1.1rem; max-width: 1120px;}
+        .masthead {padding: 0 0 0.6rem; margin-bottom: 0.4rem;}
+        .masthead h1, .rank-card h3, h1, h2, h3, p, label, span {color: #e7edf4;}
+        .masthead h1 {font-size: 1.7rem; line-height: 1.2; margin: 0.1rem 0 0.3rem;}
+        .masthead p, .rank-meta, .kicker {margin: 0; color: #c5d0dc;}
         .kicker {
-            margin: 0;
-            color: #1d4e89;
             letter-spacing: 0.08em;
             text-transform: uppercase;
             font-size: 0.72rem;
             font-weight: 700;
         }
-        section[data-testid="stSidebar"] {background: #ffffff; border-right: 1px solid #e2e8f0;}
-        div[data-testid="stFileUploader"] {
-            background: #ffffff;
-            border: 1px dashed #94a3b8;
-            border-radius: 8px;
-            padding: 0.4rem 0.6rem 0.2rem;
-        }
-        div[data-testid="stRadio"] div[role="radiogroup"] {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 0.2rem;
-            width: fit-content;
-            gap: 0.2rem;
-        }
-        div[data-testid="stMetric"] {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            padding: 0.55rem 0.75rem;
-            border-radius: 8px;
-        }
-        .weight-track {
-            height: 6px;
-            background: #e2e8f0;
-            border-radius: 99px;
-            overflow: hidden;
-            margin-top: 0.35rem;
-        }
-        .weight-track span {display: block; height: 100%; background: #1d4e89;}
-        .rank-card {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 0.85rem 1rem;
-            min-height: 124px;
-        }
-        .rank-card h3 {margin: 0.1rem 0 0.3rem; color: #0f172a;}
-        .rank-no {margin: 0; color: #1d4e89; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;}
-        .rank-score {margin: 0; font-size: 1.25rem; font-weight: 700; color: #0f172a;}
-        .rank-meta {margin: 0.25rem 0 0; color: #64748b; font-size: 0.85rem;}
-        .stButton > button {border-radius: 6px;}
+        section[data-testid="stSidebar"] {border-right: 0;}
+        div[data-testid="stFileUploader"] {border: 1px solid #3a4554; border-radius: 8px; padding: 0.4rem 0.6rem 0.2rem;}
+        div[data-testid="stMetric"] {border: 0; padding: 0.2rem 0;}
+        .weight-track {height: 6px; background: #2c3542; border-radius: 99px; overflow: hidden; margin-top: 0.35rem;}
+        .weight-track span {display: block; height: 100%; background: #9eb6d4;}
+        .rank-card {border: 0; padding: 0.2rem 0; min-height: 0;}
+        .rank-no {margin: 0; color: #9eb6d4; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;}
+        .rank-score {margin: 0; font-size: 1.25rem; font-weight: 700; color: #e7edf4;}
+        input, textarea {background: #1a1f27 !important; color: #e7edf4 !important;}
+        .stButton > button {border-radius: 6px; background: #1a1f27; color: #e7edf4; border: 1px solid #9eb6d4;}
         </style>
         """,
         unsafe_allow_html=True,
