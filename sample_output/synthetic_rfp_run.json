@@ -1,0 +1,344 @@
+{
+  "notice": "SYNTHETIC TEST DATA. This export was produced offline with a fake model. It is not a live OpenAI evaluation and it contains no real supplier information.",
+  "rfp_run_id": "a718f3bb-a6a0-4f34-af28-34b77609f55d",
+  "created_at": "2026-10-18T09:56:44+00:00",
+  "status": "completed",
+  "suppliers": [
+    {
+      "supplier_name": "NexaWorks",
+      "submission_date": "2026-02-01",
+      "experience_rating": 4,
+      "absolute_score": 81.0,
+      "ppi": 87.77777777777777,
+      "final_rank": 1,
+      "result_json": {
+        "supplier_name": "NexaWorks",
+        "submission_date": "2026-02-01",
+        "experience_rating": 4,
+        "status": "scored",
+        "absolute_score": 81.0,
+        "ppi": 87.77777777777777,
+        "final_rank": 1,
+        "risks": [
+          "Synthetic test risk for NexaWorks. Not a live model finding."
+        ],
+        "overall_summary": "Synthetic test summary for NexaWorks. Produced by the offline fake model.",
+        "warnings": [],
+        "criteria": [
+          {
+            "criterion_id": 1,
+            "name": "Technical Capability",
+            "weight": 30,
+            "max_score": 10,
+            "score": 8.0,
+            "benchmark": 9.0,
+            "gap": -1.0,
+            "relative_percent": 88.88888888888889,
+            "justification": "Synthetic test justification for NexaWorks, criterion 1.",
+            "evidence": "Synthetic test evidence for NexaWorks, criterion 1. Not a live model citation."
+          },
+          {
+            "criterion_id": 2,
+            "name": "Implementation Plan",
+            "weight": 20,
+            "max_score": 10,
+            "score": 10.0,
+            "benchmark": 10.0,
+            "gap": 0.0,
+            "relative_percent": 100.0,
+            "justification": "Synthetic test justification for NexaWorks, criterion 2.",
+            "evidence": "Synthetic test evidence for NexaWorks, criterion 2. Not a live model citation."
+          },
+          {
+            "criterion_id": 3,
+            "name": "Commercial Value",
+            "weight": 20,
+            "max_score": 10,
+            "score": 7.0,
+            "benchmark": 9.0,
+            "gap": -2.0,
+            "relative_percent": 77.77777777777779,
+            "justification": "Synthetic test justification for NexaWorks, criterion 3.",
+            "evidence": "Synthetic test evidence for NexaWorks, criterion 3. Not a live model citation."
+          },
+          {
+            "criterion_id": 4,
+            "name": "Security & Compliance",
+            "weight": 20,
+            "max_score": 10,
+            "score": 7.0,
+            "benchmark": 9.0,
+            "gap": -2.0,
+            "relative_percent": 77.77777777777779,
+            "justification": "Synthetic test justification for NexaWorks, criterion 4.",
+            "evidence": "Synthetic test evidence for NexaWorks, criterion 4. Not a live model citation."
+          },
+          {
+            "criterion_id": 5,
+            "name": "Support & Experience",
+            "weight": 10,
+            "max_score": 10,
+            "score": 9.0,
+            "benchmark": 9.0,
+            "gap": 0.0,
+            "relative_percent": 100.0,
+            "justification": "Synthetic test justification for NexaWorks, criterion 5.",
+            "evidence": "Synthetic test evidence for NexaWorks, criterion 5. Not a live model citation."
+          }
+        ]
+      }
+    },
+    {
+      "supplier_name": "Apex Systems",
+      "submission_date": "2026-02-10",
+      "experience_rating": 4,
+      "absolute_score": 76.0,
+      "ppi": 82.88888888888889,
+      "final_rank": 2,
+      "result_json": {
+        "supplier_name": "Apex Systems",
+        "submission_date": "2026-02-10",
+        "experience_rating": 4,
+        "status": "scored",
+        "absolute_score": 76.0,
+        "ppi": 82.88888888888889,
+        "final_rank": 2,
+        "risks": [
+          "Synthetic test risk for Apex Systems. Not a live model finding."
+        ],
+        "overall_summary": "Synthetic test summary for Apex Systems. Produced by the offline fake model.",
+        "warnings": [],
+        "criteria": [
+          {
+            "criterion_id": 1,
+            "name": "Technical Capability",
+            "weight": 30,
+            "max_score": 10,
+            "score": 9.0,
+            "benchmark": 9.0,
+            "gap": 0.0,
+            "relative_percent": 100.0,
+            "justification": "Synthetic test justification for Apex Systems, criterion 1.",
+            "evidence": "Synthetic test evidence for Apex Systems, criterion 1. Not a live model citation."
+          },
+          {
+            "criterion_id": 2,
+            "name": "Implementation Plan",
+            "weight": 20,
+            "max_score": 10,
+            "score": 7.0,
+            "benchmark": 10.0,
+            "gap": -3.0,
+            "relative_percent": 70.0,
+            "justification": "Synthetic test justification for Apex Systems, criterion 2.",
+            "evidence": "Synthetic test evidence for Apex Systems, criterion 2. Not a live model citation."
+          },
+          {
+            "criterion_id": 3,
+            "name": "Commercial Value",
+            "weight": 20,
+            "max_score": 10,
+            "score": 5.0,
+            "benchmark": 9.0,
+            "gap": -4.0,
+            "relative_percent": 55.55555555555556,
+            "justification": "Synthetic test justification for Apex Systems, criterion 3.",
+            "evidence": "Synthetic test evidence for Apex Systems, criterion 3. Not a live model citation."
+          },
+          {
+            "criterion_id": 4,
+            "name": "Security & Compliance",
+            "weight": 20,
+            "max_score": 10,
+            "score": 9.0,
+            "benchmark": 9.0,
+            "gap": 0.0,
+            "relative_percent": 100.0,
+            "justification": "Synthetic test justification for Apex Systems, criterion 4.",
+            "evidence": "Synthetic test evidence for Apex Systems, criterion 4. Not a live model citation."
+          },
+          {
+            "criterion_id": 5,
+            "name": "Support & Experience",
+            "weight": 10,
+            "max_score": 10,
+            "score": 7.0,
+            "benchmark": 9.0,
+            "gap": -2.0,
+            "relative_percent": 77.77777777777779,
+            "justification": "Synthetic test justification for Apex Systems, criterion 5.",
+            "evidence": "Synthetic test evidence for Apex Systems, criterion 5. Not a live model citation."
+          }
+        ]
+      }
+    },
+    {
+      "supplier_name": "BrightPath Tech",
+      "submission_date": "2026-01-20",
+      "experience_rating": 2,
+      "absolute_score": 62.0,
+      "ppi": 67.1111111111111,
+      "final_rank": 3,
+      "result_json": {
+        "supplier_name": "BrightPath Tech",
+        "submission_date": "2026-01-20",
+        "experience_rating": 2,
+        "status": "scored",
+        "absolute_score": 62.0,
+        "ppi": 67.1111111111111,
+        "final_rank": 3,
+        "risks": [
+          "Synthetic test risk for BrightPath Tech. Not a live model finding."
+        ],
+        "overall_summary": "Synthetic test summary for BrightPath Tech. Produced by the offline fake model.",
+        "warnings": [],
+        "criteria": [
+          {
+            "criterion_id": 1,
+            "name": "Technical Capability",
+            "weight": 30,
+            "max_score": 10,
+            "score": 6.0,
+            "benchmark": 9.0,
+            "gap": -3.0,
+            "relative_percent": 66.66666666666666,
+            "justification": "Synthetic test justification for BrightPath Tech, criterion 1.",
+            "evidence": "Synthetic test evidence for BrightPath Tech, criterion 1. Not a live model citation."
+          },
+          {
+            "criterion_id": 2,
+            "name": "Implementation Plan",
+            "weight": 20,
+            "max_score": 10,
+            "score": 8.0,
+            "benchmark": 10.0,
+            "gap": -2.0,
+            "relative_percent": 80.0,
+            "justification": "Synthetic test justification for BrightPath Tech, criterion 2.",
+            "evidence": "Synthetic test evidence for BrightPath Tech, criterion 2. Not a live model citation."
+          },
+          {
+            "criterion_id": 3,
+            "name": "Commercial Value",
+            "weight": 20,
+            "max_score": 10,
+            "score": 9.0,
+            "benchmark": 9.0,
+            "gap": 0.0,
+            "relative_percent": 100.0,
+            "justification": "Synthetic test justification for BrightPath Tech, criterion 3.",
+            "evidence": "Synthetic test evidence for BrightPath Tech, criterion 3. Not a live model citation."
+          },
+          {
+            "criterion_id": 4,
+            "name": "Security & Compliance",
+            "weight": 20,
+            "max_score": 10,
+            "score": 3.0,
+            "benchmark": 9.0,
+            "gap": -6.0,
+            "relative_percent": 33.33333333333333,
+            "justification": "Synthetic test justification for BrightPath Tech, criterion 4.",
+            "evidence": "Synthetic test evidence for BrightPath Tech, criterion 4. Not a live model citation."
+          },
+          {
+            "criterion_id": 5,
+            "name": "Support & Experience",
+            "weight": 10,
+            "max_score": 10,
+            "score": 4.0,
+            "benchmark": 9.0,
+            "gap": -5.0,
+            "relative_percent": 44.44444444444444,
+            "justification": "Synthetic test justification for BrightPath Tech, criterion 5.",
+            "evidence": "Synthetic test evidence for BrightPath Tech, criterion 5. Not a live model citation."
+          }
+        ]
+      }
+    },
+    {
+      "supplier_name": "Orbit Digital",
+      "submission_date": "2026-01-15",
+      "experience_rating": 5,
+      "absolute_score": 56.0,
+      "ppi": 61.33333333333333,
+      "final_rank": 4,
+      "result_json": {
+        "supplier_name": "Orbit Digital",
+        "submission_date": "2026-01-15",
+        "experience_rating": 5,
+        "status": "scored",
+        "absolute_score": 56.0,
+        "ppi": 61.33333333333333,
+        "final_rank": 4,
+        "risks": [
+          "Synthetic test risk for Orbit Digital. Not a live model finding."
+        ],
+        "overall_summary": "Synthetic test summary for Orbit Digital. Produced by the offline fake model.",
+        "warnings": [],
+        "criteria": [
+          {
+            "criterion_id": 1,
+            "name": "Technical Capability",
+            "weight": 30,
+            "max_score": 10,
+            "score": 5.0,
+            "benchmark": 9.0,
+            "gap": -4.0,
+            "relative_percent": 55.55555555555556,
+            "justification": "Synthetic test justification for Orbit Digital, criterion 1.",
+            "evidence": "Synthetic test evidence for Orbit Digital, criterion 1. Not a live model citation."
+          },
+          {
+            "criterion_id": 2,
+            "name": "Implementation Plan",
+            "weight": 20,
+            "max_score": 10,
+            "score": 4.0,
+            "benchmark": 10.0,
+            "gap": -6.0,
+            "relative_percent": 40.0,
+            "justification": "Synthetic test justification for Orbit Digital, criterion 2.",
+            "evidence": "Synthetic test evidence for Orbit Digital, criterion 2. Not a live model citation."
+          },
+          {
+            "criterion_id": 3,
+            "name": "Commercial Value",
+            "weight": 20,
+            "max_score": 10,
+            "score": 6.0,
+            "benchmark": 9.0,
+            "gap": -3.0,
+            "relative_percent": 66.66666666666666,
+            "justification": "Synthetic test justification for Orbit Digital, criterion 3.",
+            "evidence": "Synthetic test evidence for Orbit Digital, criterion 3. Not a live model citation."
+          },
+          {
+            "criterion_id": 4,
+            "name": "Security & Compliance",
+            "weight": 20,
+            "max_score": 10,
+            "score": 6.0,
+            "benchmark": 9.0,
+            "gap": -3.0,
+            "relative_percent": 66.66666666666666,
+            "justification": "Synthetic test justification for Orbit Digital, criterion 4.",
+            "evidence": "Synthetic test evidence for Orbit Digital, criterion 4. Not a live model citation."
+          },
+          {
+            "criterion_id": 5,
+            "name": "Support & Experience",
+            "weight": 10,
+            "max_score": 10,
+            "score": 9.0,
+            "benchmark": 9.0,
+            "gap": 0.0,
+            "relative_percent": 100.0,
+            "justification": "Synthetic test justification for Orbit Digital, criterion 5.",
+            "evidence": "Synthetic test evidence for Orbit Digital, criterion 5. Not a live model citation."
+          }
+        ]
+      }
+    }
+  ]
+}
