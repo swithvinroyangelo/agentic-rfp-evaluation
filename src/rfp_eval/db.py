@@ -207,6 +207,22 @@ def update_criteria(db_path: Path | str, updates: list[dict]) -> None:
         connection.close()
 
 
+def delete_evaluation_runs(db_path: Path | str) -> int:
+    """Delete every saved run and its supplier rows. Criteria are left in place."""
+    connection = connect(db_path)
+    try:
+        connection.execute("BEGIN")
+        connection.execute("DELETE FROM supplier_results")
+        deleted = connection.execute("DELETE FROM rfp_runs").rowcount
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+    return int(deleted)
+
+
 def list_evaluation_runs(db_path: Path | str) -> list[dict]:
     connection = connect(db_path)
     try:

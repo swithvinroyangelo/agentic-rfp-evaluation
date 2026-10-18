@@ -6,6 +6,7 @@ import html
 import json
 import sys
 import tempfile
+from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -27,24 +28,36 @@ from rfp_eval.dashboard import (
     leaderboard_rows,
     partition_suppliers,
     resolve_api_key,
-    SAMPLE_SUPPLIER_NAMES,
+    SAMPLE_PROPOSAL_DETAILS,
+    detail_with_sample_fallback,
+    remembered_supplier_row,
     scorecard_rows,
     suggest_supplier_name,
     submission_token,
     validate_supplier_rows,
+    waiting_for_results_message,
 )
 from rfp_eval.db import (
+    delete_evaluation_runs,
     initialize_database,
     list_all_criteria,
     list_evaluation_runs,
     load_evaluation_run,
     update_criteria,
 )
-from rfp_eval.llm_client import DEFAULT_MODEL, OpenAIEvaluationClient, load_project_env, read_setting
+from rfp_eval.llm_client import (
+    DEFAULT_MODEL,
+    OpenAIEvaluationClient,
+    load_project_env,
+    normalize_api_key,
+    read_setting,
+)
 from rfp_eval.orchestrator import SupplierSubmission, run_evaluation_batch
 from rfp_eval.proposals import PROPOSAL_FILENAMES
 
 DB_PATH = default_database_path(ROOT)
+LOGO_PATH = ROOT / "assets" / "logo.svg"
+BRAND_NAME = "Swithvin Angelo"
 STEPS = ("Upload", "Criteria", "Evaluate")
 STEP_HINTS = {
     "Upload": "Add the supplier PDFs, then enter a name, date, and experience rating for each file.",
@@ -56,8 +69,8 @@ STEP_HINTS = {
 def main() -> None:
     load_project_env(ROOT / ".env")
     st.set_page_config(
-        page_title="Supplier ranking",
-        page_icon="▣",
+        page_title=f"{BRAND_NAME} · Supplier ranking",
+        page_icon=str(LOGO_PATH),
         layout="wide",
         initial_sidebar_state="expanded",
     )
@@ -143,11 +156,19 @@ def render_upload() -> None:
     sample_col, clear_col = st.columns(2)
     if sample_col.button("Load sample proposals", use_container_width=True):
         st.session_state["use_samples"] = True
-        for filename, name in SAMPLE_SUPPLIER_NAMES.items():
+        for filename, (name, submitted, experience) in SAMPLE_PROPOSAL_DETAILS.items():
+            _save_proposal_detail(filename, name, submitted, experience)
             st.session_state[f"name_{filename}"] = name
+            st.session_state[f"date_{filename}"] = date.fromisoformat(submitted)
+            st.session_state[f"experience_{filename}"] = experience
         st.rerun()
     if clear_col.button("Clear sample proposals", use_container_width=True):
         st.session_state["use_samples"] = False
+        details = _proposal_details()
+        for filename in SAMPLE_PROPOSAL_DETAILS:
+            details.pop(filename, None)
+            for prefix in ("name_", "date_", "experience_"):
+                st.session_state.pop(f"{prefix}{filename}", None)
         st.rerun()
     uploads = st.file_uploader(
         "Drop supplier PDFs here",
@@ -166,11 +187,18 @@ def render_upload() -> None:
     if sources and st.button("Fill names from file names"):
         for source in sources:
             filename, identity = _source_identity(source)
-            st.session_state[f"name_{identity}"] = suggest_supplier_name(filename)
+            name = suggest_supplier_name(filename)
+            st.session_state[f"name_{identity}"] = name
+            stored = _proposal_details().get(filename, {})
+            submitted = str(stored.get("submission_date") or date.today().isoformat())
+            experience = int(stored.get("experience_rating", st.session_state.get(f"experience_{identity}", 3)))
+            _save_proposal_detail(filename, name, submitted, experience)
         st.rerun()
     rows: list[SupplierFormRow] = []
     for source in sources:
         filename, identity = _source_identity(source)
+        _ensure_proposal_detail(filename)
+        _restore_detail_widgets(filename, identity)
         with st.container(border=True):
             name_col, date_col, experience_col = st.columns([2, 1.2, 1])
             supplier_name = name_col.text_input(
@@ -193,6 +221,7 @@ def render_upload() -> None:
                 st.caption(f"{filename} is ready.")
             else:
                 st.caption(f"{filename} still needs a supplier name.")
+        _save_proposal_detail(filename, supplier_name, submitted.isoformat(), int(experience))
         rows.append(
             SupplierFormRow(
                 supplier_name=supplier_name,
@@ -220,7 +249,7 @@ def render_evaluate(api_key: str, model: str) -> None:
     rows = _rows_from_sources(sources)
     errors = validate_supplier_rows(rows)
     st.subheader("Evaluate")
-    st.caption("This is the last step. The batch runs only when you click the button.")
+    st.caption("Scoring starts only from the button below, and only when an API key is available. Older saved runs stay off this page until you open them.")
     _checklist(bool(api_key), reason is None, len(rows), errors)
     if sources:
         for row in rows:
@@ -230,7 +259,7 @@ def render_evaluate(api_key: str, model: str) -> None:
     if reason:
         st.error(f"Evaluation is blocked. {reason}")
     if not api_key:
-        st.warning("Enter your OpenAI API key in the sidebar. The proposals stay here until you do.")
+        st.warning("Paste an OpenAI API key in the sidebar and click Confirm API key. Scoring stays off until that key is confirmed.")
     for error in errors:
         if error != "Upload at least one PDF.":
             st.error(error)
@@ -242,24 +271,68 @@ def render_evaluate(api_key: str, model: str) -> None:
             st.session_state.get("last_run_id"),
         )
         if duplicate:
-            st.warning(duplicate)
+            st.warning(f"{duplicate} Choose Score these uploads again to send them once more.")
         blocked = bool(reason or errors or duplicate or not api_key)
+        if not blocked:
+            st.success("API key confirmed. Click Evaluate suppliers to start this batch.")
         if st.button("Evaluate suppliers", type="primary", disabled=blocked):
             _run_batch(sources, rows, token, api_key, model)
-    render_results()
+    _result_actions(bool(sources))
+    render_results(bool(api_key))
 
 
-def render_results() -> None:
+def _result_actions(has_sources: bool) -> None:
+    rerun_col, clear_col, reset_col = st.columns(3)
+    if has_sources and rerun_col.button("Score these uploads again", use_container_width=True):
+        st.session_state.pop("last_submission_token", None)
+        st.session_state["results_are_current"] = False
+        st.session_state.pop("selected_run_id", None)
+        st.rerun()
+    if clear_col.button("Clear saved results", use_container_width=True):
+        delete_evaluation_runs(DB_PATH)
+        for key in ("selected_run_id", "last_run_id", "last_submission_token", "results_are_current", "show_saved_runs"):
+            st.session_state.pop(key, None)
+        st.rerun()
+    if reset_col.button("Reset uploads and results", use_container_width=True):
+        delete_evaluation_runs(DB_PATH)
+        _clear_uploaded_work()
+        st.session_state["section"] = "Upload"
+        st.rerun()
+
+
+def _clear_uploaded_work() -> None:
+    st.session_state["saved_uploads"] = []
+    st.session_state["use_samples"] = False
+    st.session_state["proposal_details"] = {}
+    for key in ("selected_run_id", "last_run_id", "last_submission_token", "results_are_current", "show_saved_runs"):
+        st.session_state.pop(key, None)
+    for key in list(st.session_state.keys()):
+        if key.startswith(("name_", "date_", "experience_")):
+            del st.session_state[key]
+
+
+def render_results(has_key: bool) -> None:
     st.subheader("Results")
     runs = list_evaluation_runs(DB_PATH)
+    current_id = st.session_state.get("selected_run_id") if st.session_state.get("results_are_current") else None
+    if current_id:
+        try:
+            _show_run(str(current_id), current=True)
+        except ValueError:
+            st.session_state["results_are_current"] = False
+            st.info("That result was cleared.")
+        return
     if not runs:
-        st.info("No evaluations yet. Finish Upload and Criteria, then start a batch here.")
+        st.info(waiting_for_results_message(has_key))
+        return
+    st.info("No new evaluation in this session. Earlier runs are still stored on this computer.")
+    if st.button("Show saved runs"):
+        st.session_state["show_saved_runs"] = True
+    if not st.session_state.get("show_saved_runs"):
         return
     labels = {f"{run['created_at']} · {run['status']} · {run['rfp_run_id']}": run["rfp_run_id"] for run in runs}
-    preferred = st.session_state.get("selected_run_id", runs[0]["rfp_run_id"])
-    default_label = next((label for label, run_id in labels.items() if run_id == preferred), next(iter(labels)))
-    selected_label = st.selectbox("Saved run", list(labels), index=list(labels).index(default_label))
-    _show_run(labels[selected_label])
+    selected_label = st.selectbox("Saved run", list(labels))
+    _show_run(labels[selected_label], current=False)
 
 
 def _saved_sources() -> list:
@@ -271,22 +344,64 @@ def _saved_sources() -> list:
     return []
 
 
+def _proposal_details() -> dict:
+    details = st.session_state.get("proposal_details")
+    if not isinstance(details, dict):
+        details = {}
+        st.session_state["proposal_details"] = details
+    return details
+
+
+def _save_proposal_detail(filename: str, supplier_name: str, submission_date: str, experience_rating: int) -> None:
+    _proposal_details()[Path(filename).name] = {
+        "supplier_name": supplier_name.strip(),
+        "submission_date": submission_date,
+        "experience_rating": int(experience_rating),
+    }
+
+
+def _ensure_proposal_detail(filename: str) -> dict:
+    key = Path(filename).name
+    if key not in _proposal_details():
+        resolved = detail_with_sample_fallback(key, None)
+        if resolved:
+            _save_proposal_detail(
+                key,
+                str(resolved["supplier_name"]),
+                str(resolved["submission_date"]),
+                int(resolved["experience_rating"]),
+            )
+    return dict(_proposal_details().get(key, {}))
+
+
+def _restore_detail_widgets(filename: str, identity: str) -> None:
+    """Put saved details back into widgets Streamlit cleared after leaving Upload."""
+    stored = _proposal_details().get(Path(filename).name, {})
+    name_key = f"name_{identity}"
+    if name_key not in st.session_state and stored.get("supplier_name"):
+        st.session_state[name_key] = stored["supplier_name"]
+    date_key = f"date_{identity}"
+    submitted = str(stored.get("submission_date") or "")
+    if date_key not in st.session_state and submitted:
+        st.session_state[date_key] = date.fromisoformat(submitted[:10])
+    experience_key = f"experience_{identity}"
+    if experience_key not in st.session_state and stored.get("experience_rating") is not None:
+        st.session_state[experience_key] = int(stored["experience_rating"])
+
+
 def _rows_from_sources(sources) -> list[SupplierFormRow]:
     rows = []
     for source in sources:
         filename, identity = _source_identity(source)
-        submitted = st.session_state.get(f"date_{identity}", "")
-        if hasattr(submitted, "isoformat"):
-            submitted = submitted.isoformat()
-        experience = st.session_state.get(f"experience_{identity}", 3)
-        rows.append(
-            SupplierFormRow(
-                supplier_name=str(st.session_state.get(f"name_{identity}", "")),
-                submission_date=str(submitted),
-                experience_rating=int(experience),
-                filename=filename,
-            )
-        )
+        stored = dict(_ensure_proposal_detail(filename))
+        if f"name_{identity}" in st.session_state:
+            stored["supplier_name"] = st.session_state.get(f"name_{identity}", "")
+        if f"date_{identity}" in st.session_state:
+            submitted = st.session_state.get(f"date_{identity}")
+            stored["submission_date"] = submitted.isoformat() if hasattr(submitted, "isoformat") else str(submitted or "")
+        if f"experience_{identity}" in st.session_state:
+            stored["experience_rating"] = st.session_state.get(f"experience_{identity}", 3)
+        rows.append(remembered_supplier_row(filename, stored))
     return rows
 
 
@@ -315,6 +430,9 @@ def _source_identity(source) -> tuple[str, str]:
 
 
 def _run_batch(sources, rows: list[SupplierFormRow], token: str, api_key: str, model: str) -> None:
+    if not str(api_key or "").strip():
+        st.error("Enter an OpenAI API key in the sidebar before evaluating.")
+        return
     progress = st.progress(0, text="Preparing proposals")
     try:
         with tempfile.TemporaryDirectory() as folder:
@@ -351,15 +469,18 @@ def _run_batch(sources, rows: list[SupplierFormRow], token: str, api_key: str, m
     st.session_state["last_submission_token"] = token
     st.session_state["last_run_id"] = result.rfp_run_id
     st.session_state["selected_run_id"] = result.rfp_run_id
+    st.session_state["results_are_current"] = True
     st.rerun()
 
 
-def _show_run(run_id: str) -> None:
+def _show_run(run_id: str, *, current: bool) -> None:
     stored = load_evaluation_run(DB_PATH, run_id)
     payloads = [row["result_json"] for row in stored["suppliers"]]
     scored, failed = partition_suppliers(payloads)
     level, message = completion_message(stored["status"])
-    if level == "success":
+    if not current:
+        st.info(f"Saved run from {stored['created_at']}. This is not a new evaluation.")
+    elif level == "success":
         st.success(message)
     else:
         st.error(message)
@@ -462,12 +583,21 @@ def _step_nav(current: str) -> None:
     spacer.caption("Use Back and Next to move through the evaluation.")
 
 
+def _brand_mark() -> str:
+    return LOGO_PATH.read_text(encoding="utf-8")
+
+
 def _hero() -> None:
     st.markdown(
-        """
+        f"""
         <div class="masthead">
-          <p class="kicker">Procurement evaluation</p>
-          <h1>Supplier ranking</h1>
+          <div class="brand-row">
+            <div class="brand-mark">{_brand_mark()}</div>
+            <div>
+              <p class="kicker">{html.escape(BRAND_NAME)}</p>
+              <h1>Supplier ranking</h1>
+            </div>
+          </div>
           <p>Upload the proposals, check the criteria, then evaluate. Python calculates the weighted score, PPI, and rank.</p>
         </div>
         """,
@@ -496,23 +626,50 @@ def _rank_cards(rows: list[dict]) -> None:
 
 def _sidebar() -> tuple[str, str]:
     with st.sidebar:
-        st.markdown("<p class='kicker'>Session</p>", unsafe_allow_html=True)
-        st.header("API access")
-        typed_key = st.text_input(
-            "OpenAI API key",
-            type="password",
-            placeholder="Paste your key here",
-            help="Used only in this browser session. It is not saved in the project or shown again.",
+        st.markdown(
+            f"""
+            <div class="brand-lockup">
+              <div class="brand-mark">{_brand_mark()}</div>
+              <div>
+                <p class="brand-name">{html.escape(BRAND_NAME)}</p>
+                <p class="kicker">Procurement</p>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-        model = st.text_input(
-            "Model",
-            value=read_setting("OPENAI_MODEL") or DEFAULT_MODEL,
-        ).strip() or DEFAULT_MODEL
-        api_key = resolve_api_key(typed_key, read_setting("OPENAI_API_KEY"))
-        if api_key:
-            st.caption("Key ready.")
+        st.header("API access")
+        st.caption("Paste the key, then click Confirm API key. It is kept for this browser session only and is not written to the project.")
+        with st.form("api_key_form"):
+            typed_key = st.text_input(
+                "OpenAI API key",
+                type="password",
+                placeholder="Paste your key here",
+            )
+            if "model_draft" not in st.session_state:
+                st.session_state["model_draft"] = read_setting("OPENAI_MODEL") or DEFAULT_MODEL
+            model_draft = st.text_input("Model", key="model_draft")
+            confirmed = st.form_submit_button("Confirm API key", type="primary", use_container_width=True)
+        if confirmed:
+            cleaned_key = normalize_api_key(typed_key)
+            if cleaned_key:
+                st.session_state["committed_api_key"] = cleaned_key
+                st.session_state["committed_model"] = model_draft.strip() or DEFAULT_MODEL
+            else:
+                st.error("Enter a key in the box, then click Confirm API key.")
+        if st.session_state.get("committed_api_key") and st.button("Clear confirmed key", use_container_width=True):
+            st.session_state.pop("committed_api_key", None)
+            st.session_state.pop("committed_model", None)
+            st.rerun()
+        saved_key = read_setting("OPENAI_API_KEY")
+        api_key = resolve_api_key(str(st.session_state.get("committed_api_key") or ""), saved_key)
+        model = str(st.session_state.get("committed_model") or read_setting("OPENAI_MODEL") or DEFAULT_MODEL).strip() or DEFAULT_MODEL
+        if st.session_state.get("committed_api_key"):
+            st.caption("API key confirmed for this session.")
+        elif api_key:
+            st.caption("Using a key already saved for this project. Confirm a key in the box to replace it.")
         else:
-            st.warning("Enter a key before you evaluate.")
+            st.warning("The key is not active yet. Click Confirm API key.")
         return api_key, model
 
 
@@ -536,8 +693,12 @@ def _style() -> None:
         }
         .block-container {padding-top: 1.1rem; max-width: 1120px;}
         .masthead {padding: 0 0 0.6rem; margin-bottom: 0.4rem;}
+        .brand-row, .brand-lockup {display: flex; align-items: center; gap: 0.75rem;}
+        .brand-lockup {margin: 0.2rem 0 1rem;}
+        .brand-mark svg {width: 44px; height: 44px; display: block;}
+        .brand-name {margin: 0; color: #e7edf4; font-weight: 700; font-size: 0.95rem;}
         .masthead h1, .rank-card h3, h1, h2, h3, p, label, span {color: #e7edf4;}
-        .masthead h1 {font-size: 1.7rem; line-height: 1.2; margin: 0.1rem 0 0.3rem;}
+        .masthead h1 {font-size: 1.7rem; line-height: 1.2; margin: 0.15rem 0 0;}
         .masthead p, .rank-meta, .kicker {margin: 0; color: #c5d0dc;}
         .kicker {
             letter-spacing: 0.08em;

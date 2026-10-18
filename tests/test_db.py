@@ -8,8 +8,11 @@ from rfp_eval.db import (
     SEED_CRITERIA,
     Criterion,
     connect,
+    delete_evaluation_runs,
     initialize_database,
+    list_evaluation_runs,
     load_active_criteria,
+    save_evaluation_run,
     validate_active_criteria,
 )
 
@@ -117,6 +120,33 @@ def test_validate_rejects_weights_that_do_not_total_100():
     ]
     with pytest.raises(ValueError, match="must total 100"):
         validate_active_criteria(criteria)
+
+
+def test_clearing_runs_keeps_the_criteria(tmp_path):
+    db_path = tmp_path / "rfp.db"
+    initialize_database(db_path)
+    save_evaluation_run(
+        db_path,
+        "run-1",
+        "2026-10-18T00:00:00+00:00",
+        "completed",
+        [
+            {
+                "supplier_name": "Apex Systems",
+                "submission_date": "2026-02-10",
+                "experience_rating": 4,
+                "absolute_score": 80,
+                "ppi": 80,
+                "final_rank": 1,
+                "result_json": {"status": "scored", "supplier_name": "Apex Systems"},
+            }
+        ],
+    )
+    assert len(list_evaluation_runs(db_path)) == 1
+    assert delete_evaluation_runs(db_path) == 1
+    assert list_evaluation_runs(db_path) == []
+    assert len(load_active_criteria(db_path)) == 5
+    assert delete_evaluation_runs(db_path) == 0
 
 
 def test_validate_rejects_non_positive_max_score_and_weight():

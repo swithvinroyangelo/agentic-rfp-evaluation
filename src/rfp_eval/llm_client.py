@@ -3,12 +3,23 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Mapping, Optional, Protocol, Sequence
 
 from rfp_eval.db import Criterion
 
 DEFAULT_MODEL = "gpt-4o-mini"
+_API_KEY_TOKEN = re.compile(r"sk-[A-Za-z0-9_-]{8,}")
+
+
+def normalize_api_key(value: str) -> str:
+    """Keep an HTTP-safe key. A pasted middle dot or extra sentence is left out."""
+    text = value or ""
+    matched = _API_KEY_TOKEN.search(text)
+    if matched:
+        return matched.group(0)
+    return "".join(character for character in text if character.isascii() and not character.isspace())
 
 
 class EvaluationClient(Protocol):
@@ -26,7 +37,7 @@ class OpenAIEvaluationClient:
         secrets: Optional[Mapping[str, object]] = None,
         client_factory=None,
     ) -> None:
-        self.api_key = (api_key or read_setting("OPENAI_API_KEY", secrets)).strip()
+        self.api_key = normalize_api_key(api_key or read_setting("OPENAI_API_KEY", secrets))
         self.model = (model or read_setting("OPENAI_MODEL", secrets) or DEFAULT_MODEL).strip()
         self._client_factory = client_factory or _openai_client
         if not self.api_key:

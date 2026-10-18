@@ -42,12 +42,45 @@ def intake_status(
     ]
 
 
-SAMPLE_SUPPLIER_NAMES = {
-    "apex_systems.pdf": "Apex Systems",
-    "brightpath_tech.pdf": "BrightPath Tech",
-    "nexaworks.pdf": "NexaWorks",
-    "orbit_digital.pdf": "Orbit Digital",
+SAMPLE_PROPOSAL_DETAILS = {
+    "apex_systems.pdf": ("Apex Systems", "2026-02-10", 4),
+    "brightpath_tech.pdf": ("BrightPath Tech", "2026-01-20", 2),
+    "nexaworks.pdf": ("NexaWorks", "2026-02-01", 4),
+    "orbit_digital.pdf": ("Orbit Digital", "2026-01-15", 5),
 }
+SAMPLE_SUPPLIER_NAMES = {
+    filename: name for filename, (name, _submitted, _experience) in SAMPLE_PROPOSAL_DETAILS.items()
+}
+
+
+def detail_with_sample_fallback(filename: str, stored: dict | None) -> dict:
+    """Use a saved supplier record. Known sample files fill the record when none was saved."""
+    if stored is not None:
+        return stored
+    sample = SAMPLE_PROPOSAL_DETAILS.get(Path(filename).name)
+    if sample is None:
+        return {}
+    name, submitted, experience = sample
+    return {
+        "supplier_name": name,
+        "submission_date": submitted,
+        "experience_rating": experience,
+    }
+
+
+def remembered_supplier_row(filename: str, stored: dict | None) -> SupplierFormRow:
+    """Build one supplier row from details saved outside the upload widgets."""
+    item = stored or {}
+    submitted = item.get("submission_date", "")
+    if hasattr(submitted, "isoformat"):
+        submitted = submitted.isoformat()
+    experience = item.get("experience_rating", 3)
+    return SupplierFormRow(
+        supplier_name=str(item.get("supplier_name", "") or ""),
+        submission_date=str(submitted or ""),
+        experience_rating=int(experience),
+        filename=Path(filename).name,
+    )
 
 
 def suggest_supplier_name(filename: str) -> str:
@@ -68,6 +101,13 @@ def leaderboard_csv(rows: list[dict]) -> str:
     writer.writeheader()
     writer.writerows(rows)
     return buffer.getvalue()
+
+
+def waiting_for_results_message(has_key: bool) -> str:
+    """Empty-results text. A confirmed key should not be asked for again."""
+    if has_key:
+        return "No results yet. Click Evaluate suppliers to score the proposals on this page."
+    return "No results yet. Confirm an API key in the sidebar, then click Evaluate suppliers."
 
 
 def resolve_api_key(typed: str, saved: str) -> str:

@@ -14,6 +14,9 @@ from rfp_eval.dashboard import (
     intake_status,
     leaderboard_csv,
     resolve_api_key,
+    SAMPLE_PROPOSAL_DETAILS,
+    detail_with_sample_fallback,
+    remembered_supplier_row,
     suggest_supplier_name,
     duplicate_submission_message,
     evaluation_block_reason,
@@ -23,6 +26,7 @@ from rfp_eval.dashboard import (
     scorecard_rows,
     submission_token,
     validate_supplier_rows,
+    waiting_for_results_message,
 )
 from rfp_eval.db import Criterion, initialize_database, list_all_criteria, load_active_criteria, update_criteria
 
@@ -66,6 +70,50 @@ def test_intake_checklist_updates_as_the_user_fills_the_page():
     assert named["Supplier details complete"] is False
 
 
+def test_saved_supplier_details_do_not_depend_on_upload_widgets():
+    assert SAMPLE_PROPOSAL_DETAILS["nexaworks.pdf"] == ("NexaWorks", "2026-02-01", 4)
+    stored = {
+        "supplier_name": "Apex Systems",
+        "submission_date": "2026-02-10",
+        "experience_rating": 4,
+    }
+    row = remembered_supplier_row("apex_systems.pdf", stored)
+    assert validate_supplier_rows([row]) == []
+    assert detail_with_sample_fallback("orbit_digital.pdf", None)["submission_date"] == "2026-01-15"
+    assert detail_with_sample_fallback("notes.pdf", None) == {}
+    assert detail_with_sample_fallback("apex_systems.pdf", {"supplier_name": ""})["supplier_name"] == ""
+    missing = remembered_supplier_row("apex_systems.pdf", {})
+    errors = validate_supplier_rows([missing])
+    assert any("Supplier name is required." in error for error in errors)
+    assert any("YYYY-MM-DD" in error for error in errors)
+
+
+def test_sample_details_remain_after_leaving_upload():
+    from streamlit.testing.v1 import AppTest
+
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=30)
+    app.run()
+    next(button for button in app.button if button.label == "Load sample proposals").click()
+    app.run()
+    app.button(key="step_Evaluate").click()
+    app.run()
+    text = " ".join(
+        item.value
+        for collection in (app.markdown, app.text, app.success, app.info, app.error, app.warning)
+        for item in collection
+    )
+    assert "Apex Systems" in text
+    assert "2026-02-10" in text
+    assert "name missing" not in text
+    assert "Supplier name is required." not in text
+    assert "Evaluation completed" not in text
+    labels = [button.label for button in app.button]
+    assert "Clear saved results" in labels
+    assert "Score these uploads again" in labels
+    assert "Reset uploads and results" in labels
+    assert not app.exception
+
+
 def test_sample_filenames_and_leaderboard_csv():
     assert suggest_supplier_name("brightpath_tech.pdf") == "BrightPath Tech"
     assert suggest_supplier_name("north-wind.pdf") == "North Wind"
@@ -75,6 +123,28 @@ def test_sample_filenames_and_leaderboard_csv():
     assert "Rank,Supplier,PPI" in csv_text
     assert "Apex Systems" in csv_text
     assert leaderboard_csv([]) == ""
+
+
+def test_confirm_button_keeps_the_api_key_for_the_session():
+    from streamlit.testing.v1 import AppTest
+
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=30)
+    app.run()
+    key_box = next(item for item in app.text_input if item.label == "OpenAI API key")
+    key_box.set_value("session-key-test")
+    next(button for button in app.button if button.label == "Confirm API key").click()
+    app.run()
+    assert app.session_state["committed_api_key"] == "session-key-test"
+    assert any("API key confirmed" in item.value for item in app.caption)
+    assert not app.exception
+
+
+def test_confirmed_key_is_not_asked_for_again():
+    ready = waiting_for_results_message(True)
+    missing = waiting_for_results_message(False)
+    assert "Click Evaluate suppliers" in ready
+    assert "Confirm an API key" not in ready
+    assert "Confirm an API key" in missing
 
 
 def test_typed_api_key_is_used_before_a_saved_setting():

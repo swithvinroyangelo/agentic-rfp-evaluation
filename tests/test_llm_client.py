@@ -64,6 +64,13 @@ def test_env_file_fills_blank_settings_and_does_not_override(monkeypatch, tmp_pa
     assert read_setting("OPENAI_MODEL", secrets={"OPENAI_MODEL": "from-secrets"}) == "already-set"
 
 
+def test_middle_dot_pasted_with_a_key_is_not_sent():
+    pasted = "sk-proj-" + ("a" * 40) + "\u00b7 extra text"
+    client = OpenAIEvaluationClient(api_key=pasted, client_factory=lambda api_key: None)
+    assert client.api_key == "sk-proj-" + ("a" * 40)
+    assert "\u00b7" not in client.api_key
+
+
 def test_missing_api_key_raises_before_any_call(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
